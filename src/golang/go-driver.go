@@ -32,14 +32,14 @@ func NewClient(host string, port int, database, username, password string) *Clie
 }
 
 // / This would be in your client package
-func (c *Client) Connect() error {
+func (c *Client) Connect() (bool, error) {
 	address := fmt.Sprintf("%s:%d", c.host, c.port)
 	//fmt.Printf("Connecting to TCP address: %s\n", address)
 
 	var err error
 	c.conn, err = net.Dial("tcp", address)
 	if err != nil {
-		return fmt.Errorf("failed to connect to %s: %w", address, err)
+		return false, fmt.Errorf("failed to connect to %s: %w", address, err)
 	}
 
 	//fmt.Println("TCP connection established successfully")
@@ -47,7 +47,35 @@ func (c *Client) Connect() error {
 	// Set up your reader if needed
 	c.reader = bufio.NewReader(c.conn)
 
-	return nil
+	connectionString := fmt.Sprintf("syndrdb://%s:%s:%s:%s:%s;\n", c.host, strconv.Itoa(c.port), c.database, c.username, c.password)
+
+	if connectionString != "" {
+		// Parse the connection string and set the fields accordingly
+		err := ValidateConnectionString(connectionString)
+		if err != nil {
+			return false, fmt.Errorf("Error parsing connection string: %v\n", err)
+
+		}
+	}
+
+	// Send the connection string to the server
+	err = c.SendCommand(connectionString)
+	if err != nil {
+		return false, fmt.Errorf("Error sending connection string: %v\n", err)
+	}
+
+	// Initial welcome message might arrive automatically
+	response, err := c.ReceiveResponse()
+	if err != nil {
+		return false, fmt.Errorf("Error receiving connection confirmation: %v\n", err)
+
+	}
+
+	if strings.Contains(response, "S0001") {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // Close closes the client connection
@@ -219,3 +247,5 @@ func parsePort(value string) (int, error) {
 	}
 	return port, nil
 }
+
+//Parse the connection String if provided
