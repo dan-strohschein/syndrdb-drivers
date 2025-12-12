@@ -1,0 +1,33 @@
+{
+  "bundles": [
+    {
+      "name": "users",
+      "fields": [
+        { "name": "id", "type": "int", "required": true, "unique": true },
+        { "name": "email", "type": "string", "required": true, "unique": true },
+        { "name": "username", "type": "string", "required": true, "unique": true },
+        { "name": "password_hash", "type": "string", "required": true },
+        { "name": "created_at", "type": "timestamp", "required": true },
+        { "name": "updated_at", "type": "timestamp", "required": false }
+      ],
+      "indexes": [
+        { "name": "idx_email", "type": "hash", "fields": ["email"] },
+        { "name": "idx_username", "type": "hash", "fields": ["username"] }
+      ],
+      "relationships": []
+    },
+    {
+      "name": "posts",
+      "fields": [
+        { "name": "id", "type": "int", "required": true, "unique": true },
+        { "name": "user_id", "type": "int", "required": true },
+        { "name": "title", "type": "string", "required": true },
+        { "name": "content", "type": "string", "required": true },
+        { "name": "published", "type": "bool", "required": true },
+        { "name": "created_at", "type": "timestamp", "required": true }
+      ],
+      "indexes": [],
+      "relationships": []
+    }
+  ]
+}

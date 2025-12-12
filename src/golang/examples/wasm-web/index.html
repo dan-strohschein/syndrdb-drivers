@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SyndrDB Schema Designer - WASM Demo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+        header h1 {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        header p {
+            font-size: 18px;
+            opacity: 0.9;
+        }
+        .badge {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        @media (max-width: 1024px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+        textarea {
+            width: 100%;
+            min-height: 400px;
+            padding: 15px;
+            border: 2px solid #e1e4e8;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .output {
+            background: #f6f8fa;
+            border: 2px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 15px;
+            min-height: 400px;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            white-space: pre;
+            color: #24292e;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .secondary {
+            background: #6c757d;
+        }
+        .success {
+            background: #28a745;
+        }
+        .error {
+            background: #dc3545;
+            padding: 15px;
+            border-radius: 8px;
+            color: white;
+            margin-top: 10px;
+        }
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: white;
+            margin-bottom: 20px;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #28a745;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            background: #f6f8fa;
+            border: none;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            font-weight: 600;
+            color: #666;
+        }
+        .tab.active {
+            background: white;
+            color: #667eea;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .info {
+            background: #e7f3ff;
+            border-left: 4px solid #0066cc;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .info strong {
+            color: #0066cc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎨 SyndrDB Schema Designer</h1>
+            <p>Interactive schema design with real-time code generation</p>
+            <div class="badge">✨ Powered by WASM • 100% Offline Capable</div>
+        </header>
+
+        <div class="status">
+            <div class="status-indicator"></div>
+            <span>WASM Driver: <strong id="version">Loading...</strong></span>
+        </div>
+
+        <div class="info">
+            <strong>💡 Tip:</strong> This runs entirely in your browser! Edit the schema below and watch as TypeScript, JSON Schema, and GraphQL are generated in real-time. No server required.
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>📝 Schema Definition</h2>
+                <textarea id="schemaInput" spellcheck="false">{
+  "bundles": [
+    {
+      "name": "users",
+      "fields": [
+        { "name": "id", "type": "int", "required": true, "unique": true },
+        { "name": "email", "type": "string", "required": true, "unique": true },
+        { "name": "name", "type": "string", "required": true },
+        { "name": "age", "type": "int", "required": false },
+        { "name": "active", "type": "bool", "required": true }
+      ],
+      "indexes": [
+        { "name": "idx_email", "type": "hash", "fields": ["email"] }
+      ],
+      "relationships": []
+    },
+    {
+      "name": "posts",
+      "fields": [
+        { "name": "id", "type": "int", "required": true, "unique": true },
+        { "name": "user_id", "type": "int", "required": true },
+        { "name": "title", "type": "string", "required": true },
+        { "name": "content", "type": "string", "required": false },
+        { "name": "published", "type": "bool", "required": true },
+        { "name": "created_at", "type": "timestamp", "required": true }
+      ],
+      "indexes": [],
+      "relationships": []
+    }
+  ]
+}</textarea>
+                <div class="button-group">
+                    <button onclick="generateAll()">🚀 Generate All</button>
+                    <button class="secondary" onclick="loadExample()">📋 Load Example</button>
+                    <button class="secondary" onclick="clearSchema()">🗑️ Clear</button>
+                </div>
+                <div id="error"></div>
+            </div>
+
+            <div class="card">
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('json')">JSON Schema</button>
+                    <button class="tab" onclick="switchTab('graphql')">GraphQL SDL</button>
+                    <button class="tab" onclick="switchTab('typescript')">TypeScript</button>
+                </div>
+
+                <div id="json-content" class="tab-content active">
+                    <h2>📦 JSON Schema</h2>
+                    <div class="output" id="jsonOutput">Generated JSON Schema will appear here...</div>
+                    <div class="button-group">
+                        <button class="success" onclick="copyToClipboard('jsonOutput')">📋 Copy</button>
+                        <button class="success" onclick="downloadOutput('jsonOutput', 'schema.json')">💾 Download</button>
+                    </div>
+                </div>
+
+                <div id="graphql-content" class="tab-content">
+                    <h2>🔷 GraphQL SDL</h2>
+                    <div class="output" id="graphqlOutput">Generated GraphQL schema will appear here...</div>
+                    <div class="button-group">
+                        <button class="success" onclick="copyToClipboard('graphqlOutput')">📋 Copy</button>
+                        <button class="success" onclick="downloadOutput('graphqlOutput', 'schema.graphql')">💾 Download</button>
+                    </div>
+                </div>
+
+                <div id="typescript-content" class="tab-content">
+                    <h2>📘 TypeScript</h2>
+                    <div class="output" id="typescriptOutput">Generated TypeScript types will appear here...</div>
+                    <div class="button-group">
+                        <button class="success" onclick="copyToClipboard('typescriptOutput')">📋 Copy</button>
+                        <button class="success" onclick="downloadOutput('typescriptOutput', 'types.ts')">💾 Download</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>🎯 Features Demonstrated</h2>
+            <ul style="line-height: 2; color: #666;">
+                <li>✅ <strong>WASM in Browser</strong> - Go driver running in JavaScript</li>
+                <li>✅ <strong>Offline Capable</strong> - No server required for code generation</li>
+                <li>✅ <strong>Real-time Generation</strong> - Instant feedback as you type</li>
+                <li>✅ <strong>Multiple Output Formats</strong> - JSON Schema, GraphQL, TypeScript</li>
+                <li>✅ <strong>Type Safety</strong> - Generated code is fully typed</li>
+                <li>✅ <strong>Zero Dependencies</strong> - Pure WASM, no frameworks needed</li>
+            </ul>
+        </div>
+    </div>
+
+    <script src="../../wasm/wasm_exec.js"></script>
+    <script>
+        let currentTab = 'json';
+
+        // Initialize WASM
+        const go = new Go();
+        WebAssembly.instantiateStreaming(fetch("../../wasm/syndrdb.wasm"), go.importObject)
+            .then((result) => {
+                go.run(result.instance);
+                setTimeout(initDriver, 100);
+            })
+            .catch(err => {
+                document.getElementById('version').textContent = 'Failed to load: ' + err.message;
+            });
+
+        async function initDriver() {
+            try {
+                await SyndrDB.createClient({
+                    defaultTimeoutMs: 10000,
+                    debugMode: false,
+                    maxRetries: 3
+                });
+                
+                const version = SyndrDB.getVersion();
+                document.getElementById('version').textContent = version;
+                
+                // Generate initial output
+                generateAll();
+            } catch (err) {
+                document.getElementById('version').textContent = 'Error: ' + err.message;
+            }
+        }
+
+        function switchTab(tab) {
+            currentTab = tab;
+            
+            // Update tabs
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(\`.tab[onclick="switchTab('\${tab}')"]\`).classList.add('active');
+            
+            // Update content
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(\`\${tab}-content\`).classList.add('active');
+        }
+
+        async function generateAll() {
+            clearError();
+            
+            const schemaText = document.getElementById('schemaInput').value;
+            
+            try {
+                const schema = JSON.parse(schemaText);
+                
+                // Generate JSON Schema
+                try {
+                    const jsonSchema = await SyndrDB.generateJSONSchema(schemaText, 'single');
+                    document.getElementById('jsonOutput').textContent = JSON.stringify(JSON.parse(jsonSchema), null, 2);
+                } catch (err) {
+                    document.getElementById('jsonOutput').textContent = 'Error: ' + err.message;
+                }
+                
+                // Generate GraphQL
+                try {
+                    const graphqlSchema = await SyndrDB.generateGraphQLSchema(schemaText);
+                    document.getElementById('graphqlOutput').textContent = graphqlSchema;
+                } catch (err) {
+                    document.getElementById('graphqlOutput').textContent = 'Error: ' + err.message;
+                }
+                
+                // Generate TypeScript
+                try {
+                    const typescript = generateTypeScript(schema);
+                    document.getElementById('typescriptOutput').textContent = typescript;
+                } catch (err) {
+                    document.getElementById('typescriptOutput').textContent = 'Error: ' + err.message;
+                }
+                
+            } catch (err) {
+                showError('Invalid JSON: ' + err.message);
+            }
+        }
+
+        function generateTypeScript(schema) {
+            let ts = '// Auto-generated TypeScript types\\n\\n';
+            
+            for (const bundle of schema.bundles) {
+                ts += \`export interface \${capitalize(bundle.name)} {\\n\`;
+                
+                for (const field of bundle.fields) {
+                    const optional = field.required ? '' : '?';
+                    const type = mapToTypeScript(field.type);
+                    ts += \`  \${field.name}\${optional}: \${type};\\n\`;
+                }
+                
+                ts += '}\\n\\n';
+            }
+            
+            return ts;
+        }
+
+        function mapToTypeScript(type) {
+            const map = {
+                'int': 'number',
+                'float': 'number',
+                'double': 'number',
+                'string': 'string',
+                'bool': 'boolean',
+                'bytes': 'Uint8Array',
+                'timestamp': 'Date'
+            };
+            return map[type] || 'any';
+        }
+
+        function capitalize(str) {
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        function loadExample() {
+            // The default value is already an example
+            document.getElementById('schemaInput').value = document.getElementById('schemaInput').defaultValue;
+            generateAll();
+        }
+
+        function clearSchema() {
+            document.getElementById('schemaInput').value = '{"bundles": []}';
+            document.getElementById('jsonOutput').textContent = '';
+            document.getElementById('graphqlOutput').textContent = '';
+            document.getElementById('typescriptOutput').textContent = '';
+            clearError();
+        }
+
+        function copyToClipboard(elementId) {
+            const text = document.getElementById(elementId).textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                alert('✓ Copied to clipboard!');
+            });
+        }
+
+        function downloadOutput(elementId, filename) {
+            const text = document.getElementById(elementId).textContent;
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.innerHTML = \`<div class="error">\${message}</div>\`;
+        }
+
+        function clearError() {
+            document.getElementById('error').innerHTML = '';
+        }
+
+        // Auto-generate on input
+        let timeout;
+        document.getElementById('schemaInput').addEventListener('input', () => {
+            clearTimeout(timeout);
+            timeout = setTimeout(generateAll, 1000);
+        });
+    </script>
+</body>
+</html>

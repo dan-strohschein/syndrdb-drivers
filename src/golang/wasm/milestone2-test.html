@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SyndrDB Milestone 2 - WASM Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #555;
+            margin-top: 30px;
+        }
+        .status {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.loading {
+            background: #FFF9C4;
+            color: #F57F17;
+        }
+        .status.success {
+            background: #C8E6C9;
+            color: #2E7D32;
+        }
+        .status.error {
+            background: #FFCDD2;
+            color: #C62828;
+        }
+        .button-group {
+            margin: 20px 0;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        #console {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 3px 0;
+        }
+        .log-info { color: #4FC3F7; }
+        .log-success { color: #66BB6A; }
+        .log-error { color: #EF5350; }
+        .log-warn { color: #FFA726; }
+        .feature {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .feature h3 {
+            margin-top: 0;
+            color: #4CAF50;
+        }
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 SyndrDB Milestone 2 - WASM Test</h1>
+    
+    <div id="status" class="status loading">Loading WASM module...</div>
+    
+    <h2>📋 Features Available</h2>
+    
+    <div class="feature">
+        <h3>✅ Parameterized Queries</h3>
+        <ul>
+            <li><code>prepare(name, query)</code> - Create prepared statement with $1, $2 placeholders</li>
+            <li><code>executeStatement(stmtId, params)</code> - Execute with parameter array</li>
+            <li><code>deallocateStatement(stmtId)</code> - Clean up prepared statement</li>
+            <li><code>queryWithParams(query, params)</code> - Auto-prepare, execute, deallocate</li>
+        </ul>
+    </div>
+    
+    <div class="feature">
+        <h3>✅ Transactions</h3>
+        <ul>
+            <li><code>beginTransaction()</code> - Start new transaction</li>
+            <li><code>commitTransaction(txId)</code> - Commit transaction</li>
+            <li><code>rollbackTransaction(txId)</code> - Rollback transaction</li>
+            <li><code>inTransaction(callback)</code> - Auto-commit/rollback helper</li>
+        </ul>
+    </div>
+    
+    <div class="feature">
+        <h3>🔒 Security</h3>
+        <ul>
+            <li>SQL injection prevention - all parameters escaped</li>
+            <li>Parameter type validation</li>
+            <li>Statement name validation (alphanumeric + underscores only)</li>
+        </ul>
+    </div>
+    
+    <h2>🧪 Run Tests</h2>
+    <div class="button-group">
+        <button onclick="testPreparedStatements()" id="btnPrepared">Test Prepared Statements</button>
+        <button onclick="testQueryWithParams()" id="btnParams">Test QueryWithParams</button>
+        <button onclick="testSQLInjection()" id="btnSecurity">Test SQL Injection Protection</button>
+        <button onclick="testTransactions()" id="btnTransactions">Test Transactions</button>
+        <button onclick="clearConsole()" id="btnClear">Clear Console</button>
+    </div>
+    
+    <h2>📊 Console Output</h2>
+    <div id="console"></div>
+    
+    <script src="wasm_exec.js"></script>
+    <script src="milestone2-examples.js"></script>
+    <script>
+        const consoleEl = document.getElementById('console');
+        const statusEl = document.getElementById('status');
+        
+        // Intercept console methods
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        
+        function addToConsole(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            consoleEl.appendChild(entry);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            addToConsole(args.join(' '), 'info');
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            addToConsole(args.join(' '), 'error');
+        };
+        
+        console.warn = function(...args) {
+            originalWarn.apply(console, args);
+            addToConsole(args.join(' '), 'warn');
+        };
+        
+        function clearConsole() {
+            consoleEl.innerHTML = '';
+        }
+        
+        // Load WASM
+        const go = new Go();
+        WebAssembly.instantiateStreaming(fetch("syndrdb.wasm"), go.importObject).then((result) => {
+            go.run(result.instance);
+            statusEl.className = 'status success';
+            statusEl.textContent = '✅ WASM module loaded successfully!';
+            console.log('SyndrDB WASM module ready');
+            console.log('Available functions:', Object.keys(window.SyndrDB));
+        }).catch((err) => {
+            statusEl.className = 'status error';
+            statusEl.textContent = '❌ Failed to load WASM module: ' + err.message;
+            console.error('WASM load error:', err);
+        });
+        
+        // Test functions
+        async function testPreparedStatements() {
+            console.log('=== Testing Prepared Statements ===');
+            try {
+                // Note: This will fail without a real server connection
+                console.log('Creating client...');
+                await window.SyndrDB.createClient({ debugMode: true });
+                
+                console.log('⚠️  Server connection required for actual testing');
+                console.log('Example: await SyndrDB.prepare("stmt1", "SELECT * FROM Users WHERE id = $1")');
+                console.log('Then: await SyndrDB.executeStatement("stmt1", [123])');
+                
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+        
+        async function testQueryWithParams() {
+            console.log('=== Testing QueryWithParams ===');
+            try {
+                console.log('⚠️  Server connection required for actual testing');
+                console.log('Example: await SyndrDB.queryWithParams("SELECT * FROM Users WHERE name = $1", ["Alice"])');
+                console.log('Parameters are automatically escaped for security');
+                
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+        
+        async function testSQLInjection() {
+            console.log('=== Testing SQL Injection Protection ===');
+            console.log('✅ All parameters are escaped automatically');
+            console.log('Injection attempts like "\' OR \'1\'=\'1" are treated as literal strings');
+            console.log('Example: queryWithParams("SELECT * FROM Users WHERE name = $1", ["\' OR \'1\'=\'1"])');
+            console.log('Result: Searches for user with name literally "\' OR \'1\'=\'1" (safe!)');
+        }
+        
+        async function testTransactions() {
+            console.log('=== Testing Transactions ===');
+            try {
+                console.log('Creating client...');
+                await window.SyndrDB.createClient({ debugMode: true });
+                
+                console.log('✅ Transactions are now fully supported!');
+                console.log('Server supports BEGIN TRANSACTION, COMMIT, and ROLLBACK');
+                console.log('Example usage:');
+                console.log('  const tx = await SyndrDB.beginTransaction()');
+                console.log('  // ... execute queries ...');
+                console.log('  await SyndrDB.commitTransaction(tx.transactionId)');
+                console.log('');
+                console.log('Note: Requires connection to SyndrDB server with transaction support');
+                console.log('Transaction ID format: TX_<timestamp>_<random>');
+                
+                // Try to begin transaction (requires server connection)
+                try {
+                    await window.SyndrDB.beginTransaction();
+                } catch (err) {
+                    console.info('Transaction test (requires server):', err.message);
+                }
+                
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "syndrdb-node-migration",
+  "version": "1.0.0",
+  "description": "Node.js migration script using SyndrDB WASM driver",
+  "type": "module",
+  "main": "migrate.js",
+  "bin": {
+    "syndr-migrate": "./migrate.js"
+  },
+  "scripts": {
+    "migrate": "node migrate.js",
+    "migrate:dry-run": "DRY_RUN=true node migrate.js"
+  },
+  "keywords": ["syndrdb", "migration", "wasm", "ci-cd"],
+  "author": "",
+  "license": "MIT"
+}

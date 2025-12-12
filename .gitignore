@@ -137,3 +137,18 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# node stuff
+
+.s/src/node/node_modules
+
+# Migration lock files (should not be committed)
+.syndr_migration.lock
+
+docs/*
+
+src/node/docs/*
+src/node/node_modules/*
+src/node/DS_Store
+src/golang/DS_Store
+*DS_Store

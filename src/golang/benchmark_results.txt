@@ -1,0 +1,22 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/dan-strohschein/syndrdb-drivers/src/golang/benchmarks
+cpu: Apple M3 Pro
+BenchmarkConnectionEstablishment-12    	--- FAIL: BenchmarkConnectionEstablishment-12
+    benchmarks_test.go:29: Failed to connect: {"code":"AUTH_FAILED","details":{"response":{"message":"Failed to create session: maximum number of sessions (1000) reached","status":"error"}},"message":"authentication failed: Failed to create session: maximum number of sessions (1000) reached","type":"CONNECTION_ERROR"}
+--- FAIL: BenchmarkSimpleQuery
+    benchmarks_test.go:49: Failed to connect: {"code":"AUTH_FAILED","details":{"response":{"message":"Failed to create session: maximum number of sessions (1000) reached","status":"error"}},"message":"authentication failed: Failed to create session: maximum number of sessions (1000) reached","type":"CONNECTION_ERROR"}
+--- FAIL: BenchmarkMutation
+    benchmarks_test.go:74: Failed to connect: {"code":"AUTH_FAILED","details":{"response":{"message":"Failed to create session: maximum number of sessions (1000) reached","status":"error"}},"message":"authentication failed: Failed to create session: maximum number of sessions (1000) reached","type":"CONNECTION_ERROR"}
+BenchmarkSchemaComparison-12           	 3432974	       681.3 ns/op	     480 B/op	      11 allocs/op
+BenchmarkMigrationGeneration-12        	  296379	      8383 ns/op	   19692 B/op	     167 allocs/op
+BenchmarkJSONSchemaGeneration-12       	  316362	      7405 ns/op	   10959 B/op	     123 allocs/op
+BenchmarkGraphQLSchemaGeneration-12    	  491133	      4780 ns/op	    7428 B/op	     169 allocs/op
+BenchmarkTypeMapping-12                	  288045	      8130 ns/op	   11959 B/op	     187 allocs/op
+BenchmarkLargeSchemaDiff-12            	   44642	     53469 ns/op	   53535 B/op	     727 allocs/op
+BenchmarkJSONSerialization/Marshal-12  	 5097686	       470.4 ns/op	     344 B/op	       2 allocs/op
+BenchmarkJSONSerialization/Unmarshal-12         	  792003	      2969 ns/op	    1152 B/op	      25 allocs/op
+FAIL
+exit status 1
+FAIL	github.com/dan-strohschein/syndrdb-drivers/src/golang/benchmarks	22.752s
+FAIL

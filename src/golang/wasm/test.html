@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SyndrDB WASM Driver Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 0 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+        }
+        .test-container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-item {
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #ccc;
+            background: #f9f9f9;
+        }
+        .test-item.pass {
+            border-left-color: #4caf50;
+            background: #f1f8f4;
+        }
+        .test-item.fail {
+            border-left-color: #f44336;
+            background: #fef5f5;
+        }
+        .test-item.skip {
+            border-left-color: #ff9800;
+            background: #fff8f0;
+        }
+        button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #1976d2;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .code {
+            background: #272822;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .connection-form {
+            margin: 20px 0;
+        }
+        .connection-form input {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 300px;
+        }
+        .state-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .state-connected {
+            background: #4caf50;
+            color: white;
+        }
+        .state-disconnected {
+            background: #9e9e9e;
+            color: white;
+        }
+        .state-connecting {
+            background: #2196f3;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 SyndrDB WASM Driver Test</h1>
+    
+    <div class="test-container">
+        <h2>Driver Status</h2>
+        <div class="status">
+            Version: <span id="version">Loading...</span><br>
+            State: <span id="state" class="state-badge state-disconnected">DISCONNECTED</span>
+        </div>
+    </div>
+
+    <div class="test-container">
+        <h2>Connection</h2>
+        <div style="background: #fff3cd; padding: 10px; margin-bottom: 10px; border-radius: 4px; border-left: 4px solid #ffc107;">
+            <strong>⚠️ Browser Limitation:</strong> Direct TCP connections are not supported in browsers due to security restrictions. 
+            The WASM driver can only connect to SyndrDB servers in Node.js environments. Use <code>test-wasm.js</code> for connection testing.
+        </div>
+        <div class="connection-form">
+            <input type="text" id="connString" value="syndrdb://127.0.0.1:1776:primary:root:root;" placeholder="Connection string">
+            <br>
+            <button onclick="testConnect()">Connect</button>
+            <button onclick="testDisconnect()">Disconnect</button>
+        </div>
+        <div id="connResult"></div>
+    </div>
+
+    <div class="test-container">
+        <h2>Automated Tests</h2>
+        <button onclick="runAllTests()">Run All Tests</button>
+        <button onclick="clearResults()">Clear Results</button>
+        <div id="testResults"></div>
+    </div>
+
+    <div class="test-container">
+        <h2>Manual Query</h2>
+        <textarea id="queryInput" style="width: 100%; height: 100px; font-family: monospace; padding: 8px;" placeholder="Enter query...">SHOW BUNDLES;</textarea>
+        <br>
+        <button onclick="executeQuery()">Execute Query</button>
+        <button onclick="executeMutation()">Execute as Mutation</button>
+        <div id="queryResult"></div>
+    </div>
+
+    <div class="test-container">
+        <h2>State Changes Log</h2>
+        <div id="stateChanges" class="code"></div>
+    </div>
+
+    <script src="wasm_exec.js"></script>
+    <script>
+        let testResults = [];
+        let stateChanges = [];
+
+        // Initialize WASM
+        const go = new Go();
+        WebAssembly.instantiateStreaming(fetch("syndrdb.wasm"), go.importObject)
+            .then((result) => {
+                go.run(result.instance);
+                setTimeout(initDriver, 100);
+            })
+            .catch(err => {
+                document.getElementById('version').textContent = 'Failed to load: ' + err.message;
+            });
+
+        async function initDriver() {
+            try {
+                // Create client
+                await SyndrDB.createClient({
+                    defaultTimeoutMs: 10000,
+                    debugMode: false,
+                    maxRetries: 3
+                });
+
+                // Get version
+                const version = SyndrDB.getVersion();
+                document.getElementById('version').textContent = version;
+
+                // Register state change callback
+                SyndrDB.onStateChange((transition) => {
+                    stateChanges.push(transition);
+                    updateState(transition.to);
+                    logStateChange(transition);
+                });
+
+                // Update initial state
+                updateState(SyndrDB.getState());
+
+                addLog('✓ Driver initialized successfully');
+            } catch (err) {
+                addLog('✗ Failed to initialize: ' + err.message, 'fail');
+            }
+        }
+
+        function updateState(state) {
+            const stateEl = document.getElementById('state');
+            stateEl.textContent = state;
+            stateEl.className = 'state-badge state-' + state.toLowerCase();
+        }
+
+        function logStateChange(transition) {
+            const log = document.getElementById('stateChanges');
+            const timestamp = new Date(transition.timestamp).toLocaleTimeString();
+            const line = `[${timestamp}] ${transition.from} → ${transition.to} (${transition.duration}ms)`;
+            log.textContent += line + '\n';
+            log.scrollTop = log.scrollHeight;
+        }
+
+        async function testConnect() {
+            const connString = document.getElementById('connString').value;
+            const resultEl = document.getElementById('connResult');
+            resultEl.innerHTML = '<p>Connecting...</p>';
+
+            try {
+                await SyndrDB.connect(connString);
+                resultEl.innerHTML = '<div class="test-item pass">✓ Connected successfully</div>';
+            } catch (err) {
+                resultEl.innerHTML = `<div class="test-item fail">✗ Connection failed: ${err.message}</div>`;
+            }
+        }
+
+        async function testDisconnect() {
+            const resultEl = document.getElementById('connResult');
+            resultEl.innerHTML = '<p>Disconnecting...</p>';
+
+            try {
+                await SyndrDB.disconnect();
+                resultEl.innerHTML = '<div class="test-item pass">✓ Disconnected successfully</div>';
+            } catch (err) {
+                resultEl.innerHTML = `<div class="test-item fail">✗ Disconnect failed: ${err.message}</div>`;
+            }
+        }
+
+        async function executeQuery() {
+            const query = document.getElementById('queryInput').value;
+            const resultEl = document.getElementById('queryResult');
+            resultEl.innerHTML = '<p>Executing query...</p>';
+
+            try {
+                const result = await SyndrDB.query(query, 10000);
+                resultEl.innerHTML = `
+                    <div class="test-item pass">✓ Query executed successfully</div>
+                    <div class="code">${JSON.stringify(result, null, 2)}</div>
+                `;
+            } catch (err) {
+                resultEl.innerHTML = `<div class="test-item fail">✗ Query failed: ${err.message}</div>`;
+            }
+        }
+
+        async function executeMutation() {
+            const mutation = document.getElementById('queryInput').value;
+            const resultEl = document.getElementById('queryResult');
+            resultEl.innerHTML = '<p>Executing mutation...</p>';
+
+            try {
+                const result = await SyndrDB.mutate(mutation, 10000);
+                resultEl.innerHTML = `
+                    <div class="test-item pass">✓ Mutation executed successfully</div>
+                    <div class="code">${JSON.stringify(result, null, 2)}</div>
+                `;
+            } catch (err) {
+                resultEl.innerHTML = `<div class="test-item fail">✗ Mutation failed: ${err.message}</div>`;
+            }
+        }
+
+        async function runAllTests() {
+            const resultsEl = document.getElementById('testResults');
+            resultsEl.innerHTML = '<p>Running tests...</p>';
+            testResults = [];
+
+            // Test 1: Version check
+            addTest('Get version', () => {
+                const version = SyndrDB.getVersion();
+                if (!version) throw new Error('Version is empty');
+                return `Version: ${version}`;
+            });
+
+            // Test 2: State check
+            addTest('Check initial state', () => {
+                const state = SyndrDB.getState();
+                if (!state) throw new Error('State is empty');
+                return `State: ${state}`;
+            });
+
+            // Test 3: Schema generation
+            await addAsyncTest('Generate JSON Schema', async () => {
+                const schemaDef = {
+                    bundles: [{
+                        name: 'test',
+                        fields: [{ name: 'id', type: 'int', required: true, unique: true, defaultValue: null }],
+                        indexes: [],
+                        relationships: []
+                    }]
+                };
+                const schema = await SyndrDB.generateJSONSchema(JSON.stringify(schemaDef), 'single');
+                if (!schema) throw new Error('Schema is empty');
+                return `Generated ${schema.length} characters`;
+            });
+
+            // Test 4: GraphQL generation
+            await addAsyncTest('Generate GraphQL Schema', async () => {
+                const schemaDef = {
+                    bundles: [{
+                        name: 'test',
+                        fields: [{ name: 'id', type: 'int', required: true, unique: true, defaultValue: null }],
+                        indexes: [],
+                        relationships: []
+                    }]
+                };
+                const schema = await SyndrDB.generateGraphQLSchema(JSON.stringify(schemaDef));
+                if (!schema) throw new Error('Schema is empty');
+                return `Generated ${schema.length} characters`;
+            });
+
+            displayTestResults();
+        }
+
+        function addTest(name, testFn) {
+            try {
+                const result = testFn();
+                testResults.push({ name, status: 'pass', message: result });
+            } catch (err) {
+                testResults.push({ name, status: 'fail', message: err.message });
+            }
+        }
+
+        async function addAsyncTest(name, testFn) {
+            try {
+                const result = await testFn();
+                testResults.push({ name, status: 'pass', message: result });
+            } catch (err) {
+                testResults.push({ name, status: 'fail', message: err.message });
+            }
+        }
+
+        function displayTestResults() {
+            const resultsEl = document.getElementById('testResults');
+            const passed = testResults.filter(t => t.status === 'pass').length;
+            const total = testResults.length;
+
+            let html = `<h3>Results: ${passed}/${total} passed</h3>`;
+            testResults.forEach(test => {
+                html += `
+                    <div class="test-item ${test.status}">
+                        <strong>${test.status === 'pass' ? '✓' : '✗'} ${test.name}</strong><br>
+                        ${test.message}
+                    </div>
+                `;
+            });
+            resultsEl.innerHTML = html;
+        }
+
+        function clearResults() {
+            document.getElementById('testResults').innerHTML = '';
+            document.getElementById('queryResult').innerHTML = '';
+            document.getElementById('connResult').innerHTML = '';
+            testResults = [];
+        }
+
+        function addLog(message, type = 'info') {
+            console.log(message);
+        }
+    </script>
+</body>
+</html>

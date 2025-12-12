@@ -1,0 +1,17 @@
+{
+  "name": "syndrdb-graphql-api",
+  "version": "1.0.0",
+  "description": "Node.js GraphQL API using SyndrDB WASM driver",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": ["syndrdb", "graphql", "wasm", "api"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "graphql": "^16.8.1"
+  }
+}
