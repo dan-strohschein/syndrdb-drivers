@@ -16,10 +16,10 @@ import (
 
 // LockMetadata contains information about who holds the migration lock.
 type LockMetadata struct {
-	Holder    string    `json:"holder"`    // Username from environment
-	Hostname  string    `json:"hostname"`  // Hostname for distributed detection
-	PID       int       `json:"pid"`       // Process ID
-	Timestamp time.Time `json:"timestamp"` // When lock was acquired
+	Holder    string    `json:"holder"`         // Username from environment
+	Hostname  string    `json:"hostname"`       // Hostname for distributed detection
+	PID       int       `json:"pid"`            // Process ID
+	Timestamp time.Time `json:"timestamp"`      // When lock was acquired
 	Note      string    `json:"note,omitempty"` // Optional context (CI job ID, etc.)
 }
 
@@ -49,7 +49,7 @@ func NewMigrationLock(dir string, timeout time.Duration) (*MigrationLock, error)
 	}
 
 	lockPath := filepath.Join(dir, ".syndr_migration.lock")
-	
+
 	return &MigrationLock{
 		lockPath:     lockPath,
 		staleTimeout: timeout,
@@ -126,7 +126,7 @@ func (l *MigrationLock) acquireLockWithRetry(attempt int) error {
 
 		// Lock is held by active process
 		metadata, _ := l.readLockMetadata()
-		
+
 		// Check if we should retry
 		if attempt < l.maxRetries {
 			// Calculate backoff with exponential increase
@@ -134,10 +134,10 @@ func (l *MigrationLock) acquireLockWithRetry(attempt int) error {
 			if backoff > time.Minute {
 				backoff = time.Minute
 			}
-			
+
 			fmt.Fprintf(os.Stderr, "Lock held by %s@%s (PID %d), retrying in %s (attempt %d/%d)\n",
 				metadata.Holder, metadata.Hostname, metadata.PID, backoff, attempt+1, l.maxRetries)
-			
+
 			time.Sleep(backoff)
 			return l.acquireLockWithRetry(attempt + 1)
 		}
@@ -198,7 +198,7 @@ func (l *MigrationLock) ForceUnlock() error {
 
 	fmt.Fprintf(os.Stderr, "Force unlocking migration lock held by %s@%s (PID %d)\n",
 		metadata.Holder, metadata.Hostname, metadata.PID)
-	
+
 	return l.ReleaseLock()
 }
 
@@ -216,10 +216,10 @@ func (l *MigrationLock) isLockStale() bool {
 // cleanupStaleLock removes a stale lock file with logging.
 func (l *MigrationLock) cleanupStaleLock() error {
 	metadata, _ := l.readLockMetadata()
-	
+
 	fmt.Fprintf(os.Stderr, "Warning: cleaning up stale lock (held for >%s by %s@%s)\n",
 		l.staleTimeout, metadata.Holder, metadata.Hostname)
-	
+
 	return l.ReleaseLock()
 }
 
@@ -241,7 +241,7 @@ func (l *MigrationLock) readLockMetadata() (*LockMetadata, error) {
 // createLockConflictError creates a detailed error for lock conflicts.
 func (l *MigrationLock) createLockConflictError(metadata *LockMetadata) error {
 	age := time.Since(metadata.Timestamp)
-	
+
 	return fmt.Errorf("migration lock is held by %s@%s (PID %d) since %s ago. "+
 		"Wait for the migration to complete or use force unlock if the process is stuck",
 		metadata.Holder, metadata.Hostname, metadata.PID, age.Round(time.Second))

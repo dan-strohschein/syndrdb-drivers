@@ -279,9 +279,9 @@ func (c *Client) Preview(migrations []*Migration) (*MigrationPlan, error) {
 // FormatPreview formats a migration plan for human-readable output.
 func FormatPreview(plan *MigrationPlan) string {
 	var sb strings.Builder
-	
+
 	sb.WriteString("=== Migration Preview ===\n\n")
-	
+
 	if len(plan.Migrations) == 0 {
 		sb.WriteString("No migrations to apply.\n")
 		return sb.String()
@@ -293,7 +293,7 @@ func FormatPreview(plan *MigrationPlan) string {
 		sb.WriteString(fmt.Sprintf("Migration %d: %s\n", i+1, migration.ID))
 		sb.WriteString(fmt.Sprintf("  Name: %s\n", migration.Name))
 		sb.WriteString(fmt.Sprintf("  Timestamp: %s\n", migration.Timestamp.Format(time.RFC3339)))
-		
+
 		if len(migration.Dependencies) > 0 {
 			sb.WriteString(fmt.Sprintf("  Dependencies: %v\n", migration.Dependencies))
 		}

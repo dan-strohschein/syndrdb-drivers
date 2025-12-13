@@ -213,6 +213,202 @@ The client emits state change events with the following structure:
 }
 ```
 
+## Hooks System API
+
+### Overview
+
+The WASM driver supports the hooks system for intercepting and modifying command execution. You can register custom JavaScript hooks or use built-in hooks for logging, metrics, and tracing.
+
+**Performance Note:** JavaScript hooks have ~10-50µs overhead per hook due to Go↔JavaScript boundary crossing. For performance-critical applications, consider using Go-based hooks or minimizing the number of JS hooks.
+
+### Custom JavaScript Hooks
+
+Register custom hooks with `before` and `after` callbacks:
+
+```javascript
+// Synchronous hook
+await SyndrDB.registerHook({
+    name: 'my-hook',
+    before: (ctx) => {
+        console.log('Executing:', ctx.command);
+        // Modify command if needed
+        ctx.command = ctx.command + ' /* traced */';
+        return ctx;
+    },
+    after: (ctx) => {
+        console.log('Completed in', ctx.durationMs, 'ms');
+        if (ctx.error) {
+            console.error('Error:', ctx.error);
+        }
+        return ctx;
+    }
+});
+
+// Async hook with Promises
+await SyndrDB.registerHook({
+    name: 'async-logger',
+    before: async (ctx) => {
+        await logToExternalService(ctx.command);
+        return ctx;
+    },
+    after: async (ctx) => {
+        await recordMetrics(ctx.durationMs);
+        return ctx;
+    }
+});
+```
+
+### Hook Context
+
+The `HookContext` object passed to hooks contains:
+
+```typescript
+interface HookContext {
+    command: string;          // SQL command being executed
+    commandType: string;      // 'query', 'mutation', 'transaction', 'schema'
+    traceId: string;          // Unique trace ID for this command
+    startTime: number;        // Unix timestamp (milliseconds)
+    params?: any[];           // Command parameters (if any)
+    metadata: object;         // Custom metadata (shared between hooks)
+    
+    // Available in 'after' hook:
+    result?: string;          // Command result (JSON string)
+    error?: string;           // Error message (if failed)
+    durationMs?: number;      // Execution duration
+}
+```
+
+### Built-in Hooks
+
+#### Logging Hook
+
+Logs command execution with configurable detail levels:
+
+```javascript
+await SyndrDB.createLoggingHook({
+    logCommands: true,   // Log raw commands
+    logResults: false,   // Log results (can be verbose)
+    logDurations: true   // Log execution times
+});
+```
+
+#### Metrics Hook
+
+Collects performance metrics using atomic counters:
+
+```javascript
+// Create metrics hook
+await SyndrDB.createMetricsHook();
+
+// Get current stats
+const stats = await SyndrDB.getMetricsStats();
+console.log(stats);
+// {
+//   total_commands: 150,
+//   total_queries: 100,
+//   total_mutations: 48,
+//   total_errors: 2,
+//   total_duration_ns: 45000000,
+//   avg_duration_ms: 0.3,
+//   total_duration_ms: 45
+// }
+
+// Reset metrics
+await SyndrDB.resetMetrics();
+```
+
+#### Tracing Hook
+
+Provides distributed tracing metadata:
+
+```javascript
+await SyndrDB.createTracingHook('my-service');
+
+// Hook adds trace metadata to context
+// Access via ctx.metadata.trace_start, trace_duration, trace_service
+```
+
+### Hook Management
+
+```javascript
+// Get list of registered hooks
+const { hooks, count } = await SyndrDB.getHooks();
+console.log('Registered hooks:', hooks); // ['metrics', 'logging', 'my-hook']
+
+// Unregister a hook
+await SyndrDB.unregisterHook('my-hook');
+```
+
+### Performance Comparison
+
+| Hook Type | Overhead per Command | Use Case |
+|-----------|---------------------|----------|
+| **Go Native Hooks** | ~0.8% (15ns) | Production, high-throughput |
+| **Go Built-in Hooks** | ~0.8% (15ns) | Metrics, logging, tracing |
+| **JS Sync Hooks** | ~1-2% (10-50µs) | Development, debugging |
+| **JS Async Hooks** | ~2-5% (20-100µs) | External logging, analytics |
+
+**Recommendation:** Use Go built-in hooks (metrics, logging) in production for minimal overhead. Use JavaScript hooks for development, debugging, or when you need to integrate with external JS libraries.
+
+### Hybrid Strategy
+
+For optimal performance, combine Go and JavaScript hooks:
+
+```javascript
+// Fast: Use Go built-in hooks for metrics
+await SyndrDB.createMetricsHook();
+await SyndrDB.createLoggingHook({ logCommands: true, logResults: false, logDurations: true });
+
+// Flexible: Add JS hook for custom logic when needed
+await SyndrDB.registerHook({
+    name: 'custom-analytics',
+    after: async (ctx) => {
+        // Only runs when you need custom JS integration
+        if (ctx.durationMs > 100) {
+            await sendSlowQueryAlert(ctx);
+        }
+    }
+});
+```
+
+### Example: Query Timing Hook
+
+```javascript
+await SyndrDB.registerHook({
+    name: 'timing',
+    before: (ctx) => {
+        ctx.metadata.clientStartTime = Date.now();
+        return ctx;
+    },
+    after: (ctx) => {
+        const clientDuration = Date.now() - ctx.metadata.clientStartTime;
+        console.log(`Query: ${ctx.durationMs}ms (client: ${clientDuration}ms)`);
+        return ctx;
+    }
+});
+```
+
+### Example: Error Notification Hook
+
+```javascript
+await SyndrDB.registerHook({
+    name: 'error-notifier',
+    after: async (ctx) => {
+        if (ctx.error) {
+            await fetch('/api/errors', {
+                method: 'POST',
+                body: JSON.stringify({
+                    command: ctx.command,
+                    error: ctx.error,
+                    traceId: ctx.traceId,
+                    timestamp: Date.now()
+                })
+            });
+        }
+    }
+});
+```
+
 ## Build Configuration
 
 The WASM binary is built with:
@@ -225,6 +421,7 @@ The WASM binary is built with:
 
 - Call `cleanup()` when done to prevent memory leaks
 - State change callbacks are automatically released on cleanup
+- Hooks are automatically unregistered on cleanup
 - The client maintains a single global instance
 
 ## Compatibility

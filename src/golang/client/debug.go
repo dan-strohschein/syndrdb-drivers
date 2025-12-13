@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"runtime"
 )
 
 // EnableDebugMode enables debug mode with verbose logging and stack traces.
@@ -96,120 +95,6 @@ func (c *Client) DumpDebugInfoJSON() string {
 		return fmt.Sprintf(`{"error": "failed to marshal debug info: %s"}`, err.Error())
 	}
 	return string(bytes)
-}
-
-// captureStackTrace captures the current stack trace for error reporting.
-func captureStackTrace() []string {
-	const maxDepth = 32
-	pcs := make([]uintptr, maxDepth)
-	n := runtime.Callers(3, pcs) // Skip captureStackTrace, the error constructor, and runtime.Callers
-
-	frames := make([]string, 0, n)
-	callersFrames := runtime.CallersFrames(pcs[:n])
-
-	for {
-		frame, more := callersFrames.Next()
-
-		// Format: function (file:line)
-		frames = append(frames, fmt.Sprintf("%s (%s:%d)",
-			frame.Function,
-			frame.File,
-			frame.Line,
-		))
-
-		if !more {
-			break
-		}
-	}
-
-	return frames
-}
-
-// ErrorWithDebug formats an error with debug information if debug mode is enabled.
-func (e *ConnectionError) ErrorWithDebug(debugEnabled bool) string {
-	if !debugEnabled {
-		// Simple format without cause chain
-		if e.Cause == nil {
-			b, _ := json.Marshal(map[string]interface{}{
-				"code":    e.Code,
-				"type":    e.Type,
-				"message": e.Message,
-				"details": e.Details,
-			})
-			return string(b)
-		}
-
-		// Flatten cause into message
-		return fmt.Sprintf("%s: %s", e.Message, e.Cause.Error())
-	}
-
-	// Debug mode: full detail with stack trace
-	errorData := map[string]interface{}{
-		"code":    e.Code,
-		"type":    e.Type,
-		"message": e.Message,
-		"details": e.Details,
-	}
-
-	if e.Cause != nil {
-		errorData["cause"] = e.Cause.Error()
-	}
-
-	// Add stack trace in debug mode
-	errorData["stackTrace"] = captureStackTrace()
-
-	b, _ := json.Marshal(errorData)
-	return string(b)
-}
-
-// ErrorWithDebug formats an error with debug information if debug mode is enabled.
-func (e *ProtocolError) ErrorWithDebug(debugEnabled bool) string {
-	if !debugEnabled {
-		if e.Cause == nil {
-			b, _ := json.Marshal(map[string]interface{}{
-				"code":    e.Code,
-				"type":    e.Type,
-				"message": e.Message,
-				"details": e.Details,
-			})
-			return string(b)
-		}
-
-		return fmt.Sprintf("%s: %s", e.Message, e.Cause.Error())
-	}
-
-	errorData := map[string]interface{}{
-		"code":    e.Code,
-		"type":    e.Type,
-		"message": e.Message,
-		"details": e.Details,
-	}
-
-	if e.Cause != nil {
-		errorData["cause"] = e.Cause.Error()
-	}
-
-	errorData["stackTrace"] = captureStackTrace()
-
-	b, _ := json.Marshal(errorData)
-	return string(b)
-}
-
-// ErrorWithDebug formats an error with debug information if debug mode is enabled.
-func (e *StateError) ErrorWithDebug(debugEnabled bool) string {
-	if !debugEnabled {
-		return e.Message
-	}
-
-	errorData := map[string]interface{}{
-		"code":       e.Code,
-		"type":       e.Type,
-		"message":    e.Message,
-		"stackTrace": captureStackTrace(),
-	}
-
-	b, _ := json.Marshal(errorData)
-	return string(b)
 }
 
 // logCommandExecution logs a command execution with full details in debug mode.

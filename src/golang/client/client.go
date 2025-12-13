@@ -25,6 +25,8 @@ type Client struct {
 	activeTransactions sync.Map // map[string]*transactionContext
 	stmtCache          *StatementCache
 	txMonitorDone      chan struct{}
+	hooks              []hookEntry  // Registered hooks in execution order
+	hooksMu            sync.RWMutex // Protects hooks slice
 }
 
 // NewClient creates a new SyndrDB client with the given options.
@@ -451,23 +453,101 @@ func (c *Client) sendCommand(ctx context.Context, command string) (interface{}, 
 	}
 
 	start := time.Now()
+	traceID := uuid.New().String()
+	debugMode := c.IsDebugMode()
+
+	// Initialize hook context
+	hookCtx := &HookContext{
+		Command:     command,
+		CommandType: inferCommandType(command),
+		Params:      nil,
+		StartTime:   start,
+		Metadata:    make(map[string]interface{}),
+		TraceID:     traceID,
+	}
+
+	// Execute before hooks
+	if err := c.executeBeforeHooks(ctx, hookCtx); err != nil {
+		return nil, err
+	}
+
+	// Use potentially modified command from hooks
+	command = hookCtx.Command
+
+	// Debug logging: log raw command before sending
+	if debugMode {
+		c.logger.Debug("sending raw command",
+			String("command", command),
+			String("trace_id", traceID),
+			String("timestamp", start.Format(time.RFC3339Nano)))
+	}
 
 	// Use pool mode if enabled
 	if c.poolEnabled && c.pool != nil {
+		// Debug logging: acquiring connection from pool
+		if debugMode {
+			poolStats := c.pool.Stats()
+			c.logger.Debug("acquiring connection from pool",
+				String("trace_id", traceID),
+				Int("active_connections", int(poolStats.ActiveConnections.Load())),
+				Int("idle_connections", int(poolStats.IdleConnections.Load())))
+		}
+
 		conn, err := c.pool.Get(ctx)
 		if err != nil {
 			c.logger.Error("failed to acquire connection from pool", Error("error", err))
+
+			// Execute after hooks with error
+			hookCtx.Error = err
+			hookCtx.Duration = time.Since(start)
+			c.executeAfterHooks(ctx, hookCtx)
+
 			return nil, err
 		}
-		defer c.pool.Put(conn)
+		defer func() {
+			c.pool.Put(conn)
+			// Debug logging: returning connection to pool
+			if debugMode {
+				c.logger.Debug("returned connection to pool",
+					String("trace_id", traceID),
+					String("remote_addr", conn.RemoteAddr()))
+			}
+		}()
 
 		if err := conn.SendCommand(ctx, command); err != nil {
 			c.logger.Error("failed to send command", Error("error", err))
+
+			// Execute after hooks with error
+			hookCtx.Error = err
+			hookCtx.Duration = time.Since(start)
+			c.executeAfterHooks(ctx, hookCtx)
+
 			return nil, err
 		}
 
 		result, err := conn.ReceiveResponse(ctx)
 		duration := time.Since(start)
+
+		// Update hook context with result
+		hookCtx.Result = result
+		hookCtx.Error = err
+		hookCtx.Duration = duration
+
+		// Debug logging: log raw response
+		if debugMode {
+			c.logger.Debug("received raw response",
+				String("trace_id", traceID),
+				String("response", fmt.Sprintf("%v", result)),
+				Duration("elapsed", duration),
+				Bool("success", err == nil))
+		}
+
+		// Execute after hooks
+		if hookErr := c.executeAfterHooks(ctx, hookCtx); hookErr != nil {
+			// Hook error replaces original error
+			err = hookErr
+		}
+
 		if err != nil {
 			c.logger.Error("failed to receive response",
 				Error("error", err),
@@ -477,27 +557,62 @@ func (c *Client) sendCommand(ctx context.Context, command string) (interface{}, 
 
 		c.logger.Debug("command executed",
 			String("command", command),
+			String("trace_id", traceID),
 			Duration("duration", duration))
 		return result, nil
 	}
 
 	// Use single connection mode
 	if c.conn == nil {
-		return nil, &ConnectionError{
+		err := &ConnectionError{
 			Code:    "NO_CONNECTION",
 			Type:    "CONNECTION_ERROR",
 			Message: "no active connection",
 		}
+
+		// Execute after hooks with error
+		hookCtx.Error = err
+		hookCtx.Duration = time.Since(start)
+		c.executeAfterHooks(ctx, hookCtx)
+
+		return nil, err
 	}
 
 	err := c.conn.SendCommand(ctx, command)
 	if err != nil {
 		c.logger.Error("failed to send command", Error("error", err))
+
+		// Execute after hooks with error
+		hookCtx.Error = err
+		hookCtx.Duration = time.Since(start)
+		c.executeAfterHooks(ctx, hookCtx)
+
 		return nil, err
 	}
 
 	result, err := c.conn.ReceiveResponse(ctx)
 	duration := time.Since(start)
+
+	// Update hook context with result
+	hookCtx.Result = result
+	hookCtx.Error = err
+	hookCtx.Duration = duration
+
+	// Debug logging: log raw response
+	if debugMode {
+		c.logger.Debug("received raw response",
+			String("trace_id", traceID),
+			String("response", fmt.Sprintf("%v", result)),
+			Duration("elapsed", duration),
+			Bool("success", err == nil))
+	}
+
+	// Execute after hooks
+	if hookErr := c.executeAfterHooks(ctx, hookCtx); hookErr != nil {
+		// Hook error replaces original error
+		err = hookErr
+	}
+
 	if err != nil {
 		c.logger.Error("failed to receive response",
 			Error("error", err),
@@ -507,6 +622,7 @@ func (c *Client) sendCommand(ctx context.Context, command string) (interface{}, 
 
 	c.logger.Debug("command executed",
 		String("command", command),
+		String("trace_id", traceID),
 		Duration("duration", duration))
 	return result, nil
 }

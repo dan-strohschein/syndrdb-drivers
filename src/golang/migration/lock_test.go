@@ -192,10 +192,10 @@ func TestParseLockTimeout(t *testing.T) {
 		envValue string
 		wantErr  bool
 	}{
-		{"", false},                 // Default
-		{"5m", false},               // Valid
-		{"1h", false},               // Valid
-		{"invalid", true},           // Invalid - should return error
+		{"", false},       // Default
+		{"5m", false},     // Valid
+		{"1h", false},     // Valid
+		{"invalid", true}, // Invalid - should return error
 	}
 
 	for _, tt := range tests {

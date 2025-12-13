@@ -30,6 +30,12 @@ var (
 
 	// Active transactions (Milestone 2)
 	activeTransactions = make(map[string]*client.Transaction)
+
+	// Registered JS hooks (Milestone 5)
+	jsHooks = make(map[string]*jsHook)
+
+	// Built-in hooks instances (Milestone 5)
+	builtinHooks = make(map[string]client.Hook)
 )
 
 // clientExecutorAdapter adapts client.Client to migration.MigrationExecutor interface
@@ -123,14 +129,14 @@ func makeExports() js.Value {
 	exports["validateMigration"] = js.FuncOf(validateMigration)
 	exports["rollbackMigration"] = js.FuncOf(rollbackMigration)
 	exports["previewMigration"] = js.FuncOf(previewMigration)
-	
+
 	// Migration file operations (Node.js only)
 	exports["saveMigrationFile"] = js.FuncOf(nodeOnlyExport("saveMigrationFile", saveMigrationFile))
 	exports["loadMigrationFile"] = js.FuncOf(nodeOnlyExport("loadMigrationFile", loadMigrationFile))
 	exports["listMigrations"] = js.FuncOf(nodeOnlyExport("listMigrations", listMigrations))
 	exports["acquireMigrationLock"] = js.FuncOf(nodeOnlyExport("acquireMigrationLock", acquireMigrationLock))
 	exports["releaseMigrationLock"] = js.FuncOf(nodeOnlyExport("releaseMigrationLock", releaseMigrationLock))
-	
+
 	// Environment info
 	exports["getEnvironmentInfo"] = js.FuncOf(getEnvironmentInfo)
 
@@ -145,6 +151,16 @@ func makeExports() js.Value {
 	exports["commitTransaction"] = js.FuncOf(commitTransaction)
 	exports["rollbackTransaction"] = js.FuncOf(rollbackTransaction)
 	exports["inTransaction"] = js.FuncOf(inTransaction)
+
+	// Hooks System (Milestone 5)
+	exports["registerHook"] = js.FuncOf(registerHook)
+	exports["unregisterHook"] = js.FuncOf(unregisterHook)
+	exports["getHooks"] = js.FuncOf(getHooks)
+	exports["createLoggingHook"] = js.FuncOf(createLoggingHook)
+	exports["createMetricsHook"] = js.FuncOf(createMetricsHook)
+	exports["getMetricsStats"] = js.FuncOf(getMetricsStats)
+	exports["resetMetrics"] = js.FuncOf(resetMetrics)
+	exports["createTracingHook"] = js.FuncOf(createTracingHook)
 
 	// Cleanup
 	exports["cleanup"] = js.FuncOf(cleanup)
@@ -464,7 +480,7 @@ func createMigrationClient(this js.Value, args []js.Value) interface{} {
 
 		adapter := &clientExecutorAdapter{client: globalClient}
 		globalMigrationClient = migration.NewClient(adapter)
-		
+
 		return map[string]interface{}{
 			"success": true,
 			"message": "Migration client created successfully",
@@ -1058,7 +1074,7 @@ func nodeOnlyExport(name string, fn func(js.Value, []js.Value) interface{}) func
 
 			// Unwrap the promise from the inner function
 			_ = fn(this, args)
-			
+
 			// If it's already a promise, we need to handle it differently
 			// For now, return an error indicating implementation needed
 			return map[string]interface{}{
@@ -1174,7 +1190,7 @@ func acquireMigrationLock(this js.Value, args []js.Value) interface{} {
 		}
 
 		dir := args[0].String()
-		
+
 		// Configure locking
 		if err := globalMigrationClient.WithLocking(dir, 0); err != nil {
 			return nil, err
@@ -1202,11 +1218,383 @@ func releaseMigrationLock(this js.Value, args []js.Value) interface{} {
 func getEnvironmentInfo(this js.Value, args []js.Value) interface{} {
 	return promiseWrapper(func() (interface{}, error) {
 		isNode := isNodeJS()
-		
+
 		return map[string]interface{}{
 			"runtime":           map[bool]string{true: "nodejs", false: "browser"}[isNode],
 			"fileSystemSupport": isNode,
 			"lockingSupport":    isNode,
+		}, nil
+	})
+}
+
+// ============================================================================
+// Hooks System (Milestone 5)
+// ============================================================================
+
+// jsHook wraps JavaScript hook functions to implement the Go Hook interface
+type jsHook struct {
+	name       string
+	beforeFunc js.Value
+	afterFunc  js.Value
+}
+
+func (h *jsHook) Name() string {
+	return h.name
+}
+
+func (h *jsHook) Before(ctx context.Context, hookCtx *client.HookContext) error {
+	if h.beforeFunc.IsUndefined() || h.beforeFunc.IsNull() {
+		return nil
+	}
+
+	// Convert HookContext to JS object
+	jsCtx := convertHookContextToJS(hookCtx)
+
+	// Call JavaScript before function
+	result := h.beforeFunc.Invoke(jsCtx)
+
+	// Handle Promise return
+	if result.Type() == js.TypeObject && result.Get("then").Type() == js.TypeFunction {
+		// It's a Promise - wait for it
+		resultChan := make(chan error, 1)
+
+		result.Call("then", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			// Success - update hookCtx if modified
+			if len(args) > 0 && args[0].Type() == js.TypeObject {
+				updateHookContextFromJS(hookCtx, args[0])
+			}
+			resultChan <- nil
+			return nil
+		}))
+
+		result.Call("catch", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			// Error
+			if len(args) > 0 {
+				resultChan <- js.Error{Value: args[0]}
+			} else {
+				resultChan <- js.Error{Value: js.ValueOf("hook error")}
+			}
+			return nil
+		}))
+
+		return <-resultChan
+	}
+
+	// Synchronous return - check for error
+	if result.Type() == js.TypeObject && !result.Get("error").IsUndefined() {
+		return js.Error{Value: result.Get("error")}
+	}
+
+	// Update hookCtx if modified
+	if result.Type() == js.TypeObject {
+		updateHookContextFromJS(hookCtx, result)
+	}
+
+	return nil
+}
+
+func (h *jsHook) After(ctx context.Context, hookCtx *client.HookContext) error {
+	if h.afterFunc.IsUndefined() || h.afterFunc.IsNull() {
+		return nil
+	}
+
+	// Convert HookContext to JS object
+	jsCtx := convertHookContextToJS(hookCtx)
+
+	// Call JavaScript after function
+	result := h.afterFunc.Invoke(jsCtx)
+
+	// Handle Promise return
+	if result.Type() == js.TypeObject && result.Get("then").Type() == js.TypeFunction {
+		// It's a Promise - wait for it
+		resultChan := make(chan error, 1)
+
+		result.Call("then", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			resultChan <- nil
+			return nil
+		}))
+
+		result.Call("catch", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			if len(args) > 0 {
+				resultChan <- js.Error{Value: args[0]}
+			} else {
+				resultChan <- js.Error{Value: js.ValueOf("hook error")}
+			}
+			return nil
+		}))
+
+		return <-resultChan
+	}
+
+	// Synchronous return - check for error
+	if result.Type() == js.TypeObject && !result.Get("error").IsUndefined() {
+		return js.Error{Value: result.Get("error")}
+	}
+
+	return nil
+}
+
+// convertHookContextToJS converts a Go HookContext to a JavaScript object
+func convertHookContextToJS(hookCtx *client.HookContext) js.Value {
+	obj := js.Global().Get("Object").New()
+
+	obj.Set("command", hookCtx.Command)
+	obj.Set("commandType", hookCtx.CommandType)
+	obj.Set("traceId", hookCtx.TraceID)
+	obj.Set("startTime", hookCtx.StartTime.UnixMilli())
+
+	if hookCtx.Params != nil {
+		paramsArray := make([]interface{}, len(hookCtx.Params))
+		copy(paramsArray, hookCtx.Params)
+		obj.Set("params", paramsArray)
+	}
+
+	if hookCtx.Metadata != nil {
+		metadataObj := js.Global().Get("Object").New()
+		for k, v := range hookCtx.Metadata {
+			metadataObj.Set(k, v)
+		}
+		obj.Set("metadata", metadataObj)
+	}
+
+	if hookCtx.Result != nil {
+		resultJSON, _ := json.Marshal(hookCtx.Result)
+		obj.Set("result", string(resultJSON))
+	}
+
+	if hookCtx.Error != nil {
+		obj.Set("error", hookCtx.Error.Error())
+	}
+
+	if hookCtx.Duration > 0 {
+		obj.Set("durationMs", float64(hookCtx.Duration.Milliseconds()))
+	}
+
+	return obj
+}
+
+// updateHookContextFromJS updates Go HookContext from JavaScript object
+func updateHookContextFromJS(hookCtx *client.HookContext, jsObj js.Value) {
+	if !jsObj.Get("command").IsUndefined() {
+		hookCtx.Command = jsObj.Get("command").String()
+	}
+
+	if !jsObj.Get("metadata").IsUndefined() {
+		metadata := jsObj.Get("metadata")
+		keys := js.Global().Get("Object").Call("keys", metadata)
+		for i := 0; i < keys.Length(); i++ {
+			key := keys.Index(i).String()
+			value := convertJSValueToInterface(metadata.Get(key))
+			hookCtx.Metadata[key] = value
+		}
+	}
+}
+
+// registerHook registers a custom JavaScript hook
+func registerHook(this js.Value, args []js.Value) interface{} {
+	return promiseWrapper(func() (interface{}, error) {
+		if globalClient == nil {
+			return nil, js.Error{Value: js.ValueOf("client not connected")}
+		}
+
+		if len(args) < 1 {
+			return nil, &js.ValueError{Method: "registerHook", Type: js.TypeUndefined}
+		}
+
+		hookConfig := args[0]
+
+		// Extract hook configuration
+		name := hookConfig.Get("name").String()
+		if name == "" {
+			return nil, js.Error{Value: js.ValueOf("hook name is required")}
+		}
+
+		beforeFunc := hookConfig.Get("before")
+		afterFunc := hookConfig.Get("after")
+
+		// Create JS hook wrapper
+		hook := &jsHook{
+			name:       name,
+			beforeFunc: beforeFunc,
+			afterFunc:  afterFunc,
+		}
+
+		// Store reference
+		jsHooks[name] = hook
+
+		// Register with client
+		globalClient.RegisterHook(hook)
+
+		return map[string]interface{}{
+			"success": true,
+			"message": "Hook registered: " + name,
+		}, nil
+	})
+}
+
+// unregisterHook removes a registered hook
+func unregisterHook(this js.Value, args []js.Value) interface{} {
+	return promiseWrapper(func() (interface{}, error) {
+		if globalClient == nil {
+			return nil, js.Error{Value: js.ValueOf("client not connected")}
+		}
+
+		if len(args) < 1 {
+			return nil, &js.ValueError{Method: "unregisterHook", Type: js.TypeUndefined}
+		}
+
+		name := args[0].String()
+
+		// Remove from client
+		removed := globalClient.UnregisterHook(name)
+
+		// Remove from our map
+		delete(jsHooks, name)
+		delete(builtinHooks, name)
+
+		return map[string]interface{}{
+			"success": removed,
+			"message": map[bool]string{true: "Hook removed", false: "Hook not found"}[removed],
+		}, nil
+	})
+}
+
+// getHooks returns list of registered hooks
+func getHooks(this js.Value, args []js.Value) interface{} {
+	return promiseWrapper(func() (interface{}, error) {
+		if globalClient == nil {
+			return nil, js.Error{Value: js.ValueOf("client not connected")}
+		}
+
+		hooks := globalClient.GetHooks()
+
+		return map[string]interface{}{
+			"hooks": hooks,
+			"count": len(hooks),
+		}, nil
+	})
+}
+
+// createLoggingHook creates a built-in logging hook
+func createLoggingHook(this js.Value, args []js.Value) interface{} {
+	return promiseWrapper(func() (interface{}, error) {
+		if globalClient == nil {
+			return nil, js.Error{Value: js.ValueOf("client not connected")}
+		}
+
+		// Parse options
+		logCommands := true
+		logResults := false
+		logDurations := true
+
+		if len(args) > 0 && args[0].Type() == js.TypeObject {
+			opts := args[0]
+			if !opts.Get("logCommands").IsUndefined() {
+				logCommands = opts.Get("logCommands").Bool()
+			}
+			if !opts.Get("logResults").IsUndefined() {
+				logResults = opts.Get("logResults").Bool()
+			}
+			if !opts.Get("logDurations").IsUndefined() {
+				logDurations = opts.Get("logDurations").Bool()
+			}
+		}
+
+		// Create and register hook
+		logger := client.NewLogger("DEBUG", nil)
+		hook := client.NewLoggingHook(logger, logCommands, logResults, logDurations)
+
+		builtinHooks["logging"] = hook
+		globalClient.RegisterHook(hook)
+
+		return map[string]interface{}{
+			"success": true,
+			"message": "Logging hook created and registered",
+			"name":    "logging",
+		}, nil
+	})
+}
+
+// createMetricsHook creates a built-in metrics hook
+func createMetricsHook(this js.Value, args []js.Value) interface{} {
+	return promiseWrapper(func() (interface{}, error) {
+		if globalClient == nil {
+			return nil, js.Error{Value: js.ValueOf("client not connected")}
+		}
+
+		hook := client.NewMetricsHook()
+
+		builtinHooks["metrics"] = hook
+		globalClient.RegisterHook(hook)
+
+		return map[string]interface{}{
+			"success": true,
+			"message": "Metrics hook created and registered",
+			"name":    "metrics",
+		}, nil
+	})
+}
+
+// getMetricsStats returns current metrics
+func getMetricsStats(this js.Value, args []js.Value) interface{} {
+	return promiseWrapper(func() (interface{}, error) {
+		hook, exists := builtinHooks["metrics"]
+		if !exists {
+			return nil, js.Error{Value: js.ValueOf("metrics hook not registered")}
+		}
+
+		metricsHook, ok := hook.(*client.MetricsHook)
+		if !ok {
+			return nil, js.Error{Value: js.ValueOf("invalid metrics hook")}
+		}
+
+		return metricsHook.GetStats(), nil
+	})
+}
+
+// resetMetrics resets metrics counters
+func resetMetrics(this js.Value, args []js.Value) interface{} {
+	return promiseWrapper(func() (interface{}, error) {
+		hook, exists := builtinHooks["metrics"]
+		if !exists {
+			return nil, js.Error{Value: js.ValueOf("metrics hook not registered")}
+		}
+
+		metricsHook, ok := hook.(*client.MetricsHook)
+		if !ok {
+			return nil, js.Error{Value: js.ValueOf("invalid metrics hook")}
+		}
+
+		metricsHook.Reset()
+
+		return map[string]interface{}{
+			"success": true,
+			"message": "Metrics reset",
+		}, nil
+	})
+}
+
+// createTracingHook creates a built-in tracing hook
+func createTracingHook(this js.Value, args []js.Value) interface{} {
+	return promiseWrapper(func() (interface{}, error) {
+		if globalClient == nil {
+			return nil, js.Error{Value: js.ValueOf("client not connected")}
+		}
+
+		serviceName := "syndrdb-wasm"
+		if len(args) > 0 {
+			serviceName = args[0].String()
+		}
+
+		hook := client.NewTracingHook(serviceName)
+
+		builtinHooks["tracing"] = hook
+		globalClient.RegisterHook(hook)
+
+		return map[string]interface{}{
+			"success": true,
+			"message": "Tracing hook created and registered",
+			"name":    "tracing",
 		}, nil
 	})
 }

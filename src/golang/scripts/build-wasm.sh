@@ -23,7 +23,7 @@ export GOARCH=wasm
 
 # Build WASM binary
 echo "Compiling WASM binary..."
-go build -ldflags "$LDFLAGS" -o syndrdb.wasm main.go
+go build -tags milestone2 -ldflags "$LDFLAGS" -o syndrdb.wasm main.go
 
 # Get file size
 WASM_SIZE=$(du -h syndrdb.wasm | cut -f1)
