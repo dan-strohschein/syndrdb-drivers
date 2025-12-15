@@ -1,6 +1,3 @@
-//go:build milestone2
-// +build milestone2
-
 package client
 
 import (

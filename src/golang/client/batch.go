@@ -1,6 +1,3 @@
-//go:build milestone2
-// +build milestone2
-
 package client
 
 // TODO: Implement batch operations when server extends parameterized query support

@@ -1,11 +1,9 @@
-//go:build milestone2
-
 package testutil_test
 
 import (
-"testing"
+	"testing"
 
-"github.com/dan-strohschein/syndrdb-drivers/src/golang/testutil"
+	"github.com/dan-strohschein/syndrdb-drivers/src/golang/testutil"
 )
 
 func TestUserFactory_Build(t *testing.T) {
@@ -28,9 +26,9 @@ func TestUserFactory_Build(t *testing.T) {
 func TestUserFactory_BuildWithOptions(t *testing.T) {
 	factory := testutil.NewUserFactory()
 	user := factory.Build(
-testutil.WithField("name", "Custom Name"),
-testutil.WithField("active", false),
-)
+		testutil.WithField("name", "Custom Name"),
+		testutil.WithField("active", false),
+	)
 	userMap := user.(map[string]interface{})
 
 	if userMap["name"] != "Custom Name" {

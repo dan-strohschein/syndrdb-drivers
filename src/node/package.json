@@ -25,6 +25,12 @@
   "scripts": {
     "build": "tsup",
     "test": "jest",
+    "test:unit": "jest tests/unit",
+    "test:integration": "jest tests/integration",
+    "test:performance": "jest tests/performance",
+    "benchmark": "jest tests/performance/benchmarks.test.ts --runInBand",
+    "benchmark:baseline": "npm run benchmark && node scripts/save-baseline.js",
+    "benchmark:compare": "jest tests/performance/baseline.test.ts --runInBand",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": ["syndrdb", "database", "driver", "client"],

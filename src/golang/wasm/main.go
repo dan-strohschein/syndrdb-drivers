@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"syscall/js"
 	"time"
 
@@ -173,27 +174,12 @@ func createClient(this js.Value, args []js.Value) interface{} {
 	return promiseWrapper(func() (interface{}, error) {
 		var opts *client.ClientOptions
 
+		// Parse JSON options if provided
 		if len(args) > 0 && !args[0].IsNull() && !args[0].IsUndefined() {
-			optsArg := args[0]
-			opts = &client.ClientOptions{
-				DefaultTimeoutMs: optsArg.Get("defaultTimeoutMs").Int(),
-				DebugMode:        optsArg.Get("debugMode").Bool(),
-				MaxRetries:       optsArg.Get("maxRetries").Int(),
-			}
-
-			// Parse log level if provided
-			if logLevel := optsArg.Get("logLevel"); !logLevel.IsUndefined() && !logLevel.IsNull() {
-				opts.LogLevel = logLevel.String()
-			}
-
-			// Parse health check interval if provided
-			if interval := optsArg.Get("healthCheckIntervalMs"); !interval.IsUndefined() && interval.Int() > 0 {
-				opts.HealthCheckInterval = time.Duration(interval.Int()) * time.Millisecond
-			}
-
-			// Parse max reconnect attempts if provided
-			if maxAttempts := optsArg.Get("maxReconnectAttempts"); !maxAttempts.IsUndefined() && maxAttempts.Int() > 0 {
-				opts.MaxReconnectAttempts = maxAttempts.Int()
+			optsJSON := args[0].String()
+			opts = &client.ClientOptions{}
+			if err := json.Unmarshal([]byte(optsJSON), opts); err != nil {
+				return nil, fmt.Errorf("failed to parse client options: %w", err)
 			}
 		}
 

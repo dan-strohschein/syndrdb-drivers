@@ -149,6 +149,8 @@ docs/*
 
 src/node/docs/*
 src/node/node_modules/*
+src/node-wasm/node_modules/*
+
 src/node/DS_Store
 src/golang/DS_Store
 *DS_Store

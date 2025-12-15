@@ -88,6 +88,16 @@ type ClientOptions struct {
 	// Transactions exceeding this timeout are automatically rolled back.
 	// Default: 5 minutes
 	TransactionTimeout time.Duration
+
+	// SchemaCacheTTL is the duration for which schema information is cached.
+	// After this period, schema is refreshed from the server on next validation.
+	// Default: 5 minutes
+	SchemaCacheTTL time.Duration
+
+	// PreloadSchema enables eager schema loading during connection initialization.
+	// When true, schema is fetched immediately after connecting.
+	// Default: false
+	PreloadSchema bool
 }
 
 // DefaultOptions returns ClientOptions with default values.
@@ -106,5 +116,7 @@ func DefaultOptions() ClientOptions {
 		LogLevel:                   "INFO",
 		PreparedStatementCacheSize: 100,
 		TransactionTimeout:         5 * time.Minute,
+		SchemaCacheTTL:             5 * time.Minute,
+		PreloadSchema:              false,
 	}
 }

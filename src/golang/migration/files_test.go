@@ -15,11 +15,11 @@ func TestWriteAndReadMigrationFile(t *testing.T) {
 
 	timestamp := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
 	migration := &Migration{
-		ID:        "create_users_table",
-		Name:      "Create users table",
+		ID:        "create_users_bundle",
+		Name:      "Create users bundle",
 		Timestamp: timestamp,
-		Up:        []string{"CREATE TABLE users (id INTEGER PRIMARY KEY)"},
-		Down:      []string{"DROP TABLE users"},
+		Up:        []string{`CREATE BUNDLE "users" WITH FIELDS ({"id", "int", TRUE, TRUE, 0})`},
+		Down:      []string{`DROP BUNDLE "users";`},
 	}
 
 	// Write migration
@@ -52,8 +52,8 @@ func TestFormatVersion(t *testing.T) {
 		ID:        "test",
 		Name:      "Test",
 		Timestamp: time.Now(),
-		Up:        []string{"CREATE TABLE test (id INTEGER)"},
-		Down:      []string{"DROP TABLE test"},
+		Up:        []string{`CREATE BUNDLE "test" WITH FIELDS ({"id", "int", TRUE, FALSE, 0})`},
+		Down:      []string{`DROP BUNDLE "test";`},
 	}
 
 	filePath, err := WriteMigrationFile(migration, tmpDir)
@@ -92,8 +92,8 @@ func TestListMigrationFiles(t *testing.T) {
 			ID:        fmt.Sprintf("mig_%d", i),
 			Name:      "Test",
 			Timestamp: ts,
-			Up:        []string{"CREATE TABLE test (id INTEGER)"},
-			Down:      []string{"DROP TABLE test"},
+			Up:        []string{`CREATE BUNDLE "test" WITH FIELDS ({"id", "int", TRUE, FALSE, 0})`},
+			Down:      []string{`DROP BUNDLE "test";`},
 		}
 		WriteMigrationFile(migration, tmpDir)
 	}

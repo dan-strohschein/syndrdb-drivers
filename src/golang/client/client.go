@@ -24,6 +24,7 @@ type Client struct {
 	debugMode          atomic.Bool
 	activeTransactions sync.Map // map[string]*transactionContext
 	stmtCache          *StatementCache
+	schemaValidator    *SchemaValidator // Schema validation for QueryBuilder
 	txMonitorDone      chan struct{}
 	hooks              []hookEntry  // Registered hooks in execution order
 	hooksMu            sync.RWMutex // Protects hooks slice
@@ -59,6 +60,9 @@ func NewClient(opts *ClientOptions) *Client {
 	}
 
 	client.debugMode.Store(opts.DebugMode)
+
+	// Initialize schema validator
+	client.schemaValidator = NewSchemaValidator(client, opts.SchemaCacheTTL, opts.PreloadSchema)
 
 	// Wire up lifecycle callbacks if provided
 	if opts.OnConnected != nil || opts.OnDisconnected != nil || opts.OnReconnecting != nil {
@@ -270,6 +274,9 @@ func (c *Client) connectWithPool(ctx context.Context) error {
 
 	c.logger.Info("connection pool initialized successfully")
 
+	// Recreate transaction monitor channel (in case of reconnect)
+	c.txMonitorDone = make(chan struct{})
+
 	// Start transaction timeout monitor
 	go c.transactionTimeoutMonitor()
 
@@ -303,6 +310,9 @@ func (c *Client) connectSingle(ctx context.Context) error {
 			// Success - fully authenticated
 			c.conn = conn.(*Connection)
 			c.logger.Info("connection established", String("remoteAddr", conn.RemoteAddr()))
+
+			// Recreate transaction monitor channel (in case of reconnect)
+			c.txMonitorDone = make(chan struct{})
 
 			// Start transaction timeout monitor
 			go c.transactionTimeoutMonitor()
@@ -613,6 +623,30 @@ func (c *Client) sendCommand(ctx context.Context, command string) (interface{}, 
 		err = hookErr
 	}
 
+	// Detect DDL operations and invalidate schema cache
+	if err == nil && c.schemaValidator != nil && DetectDDL(command) {
+		c.logger.Debug("DDL operation detected, invalidating schema cache",
+			String("command", command),
+			String("trace_id", traceID))
+		c.schemaValidator.InvalidateCache()
+
+		// Trigger background schema refresh if auto-refresh is enabled
+		if c.schemaValidator.autoRefresh {
+			go func() {
+				refreshCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if refreshErr := c.schemaValidator.fetchSchema(refreshCtx); refreshErr != nil {
+					c.logger.Warn("failed to refresh schema after DDL",
+						Error("error", refreshErr),
+						String("command", command))
+				} else {
+					c.logger.Debug("schema refreshed after DDL",
+						String("command", command))
+				}
+			}()
+		}
+	}
+
 	if err != nil {
 		c.logger.Error("failed to receive response",
 			Error("error", err),
@@ -824,6 +858,68 @@ func (c *Client) QueryWithParams(ctx context.Context, query string, params ...in
 	return stmt.Execute(params...)
 }
 
+// ============================================================================
+// QueryBuilder Factory Methods
+// ============================================================================
+
+// Query returns a new QueryBuilder for constructing SELECT queries.
+// Schema validation is disabled by default for maximum performance.
+// Use WithValidation(true) on the builder to enable schema-based validation.
+func (c *Client) QueryBuilder() *QueryBuilder {
+	return &QueryBuilder{
+		client:           c,
+		schemaValidation: false,
+		queryType:        selectQuery,
+	}
+}
+
+// Insert returns a new InsertBuilder for constructing INSERT queries.
+func (c *Client) InsertBuilder(bundle string) *InsertBuilder {
+	return &InsertBuilder{
+		client:           c,
+		bundle:           bundle,
+		schemaValidation: false,
+	}
+}
+
+// Update returns a new UpdateBuilder for constructing UPDATE queries.
+func (c *Client) UpdateBuilder(bundle string) *UpdateBuilder {
+	return &UpdateBuilder{
+		client:           c,
+		bundle:           bundle,
+		schemaValidation: false,
+		setFields:        make(map[string]interface{}),
+	}
+}
+
+// Delete returns a new DeleteBuilder for constructing DELETE queries.
+func (c *Client) DeleteBuilder(bundle string) *DeleteBuilder {
+	return &DeleteBuilder{
+		client:           c,
+		bundle:           bundle,
+		schemaValidation: false,
+	}
+}
+
+// PreloadSchema eagerly fetches and caches the database schema.
+// This is useful when PreloadSchema option is enabled or when you want
+// to warm the schema cache before executing queries with validation.
+func (c *Client) PreloadSchema(ctx context.Context) error {
+	if c.stateMgr.GetState() != CONNECTED {
+		return ErrInvalidState("PreloadSchema", CONNECTED, c.stateMgr.GetState())
+	}
+
+	if c.schemaValidator == nil {
+		return &QueryError{
+			Code:    "E_INVALID_QUERY",
+			Type:    "QueryError",
+			Message: "schema validator not initialized",
+		}
+	}
+
+	return c.schemaValidator.fetchSchema(ctx)
+}
+
 // Begin starts a new transaction, reserving a connection until commit/rollback.
 // Sends BEGIN TRANSACTION command to server and parses the returned TX_ID.
 func (c *Client) Begin(ctx context.Context) (*Transaction, error) {
@@ -898,6 +994,7 @@ func (c *Client) Begin(ctx context.Context) (*Transaction, error) {
 
 	tx := &Transaction{
 		id:        txID,
+		connID:    conn.RemoteAddr(), // Track connection for affinity
 		conn:      conn,
 		client:    c,
 		isolation: ReadCommitted, // Default isolation level

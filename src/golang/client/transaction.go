@@ -1,6 +1,3 @@
-//go:build milestone2
-// +build milestone2
-
 package client
 
 import (
@@ -45,6 +42,7 @@ func (l IsolationLevel) String() string {
 // Binds to a specific connection for the transaction lifetime.
 type Transaction struct {
 	id         string
+	connID     string // Connection identifier for affinity tracking
 	conn       ConnectionInterface
 	client     *Client
 	isolation  IsolationLevel
@@ -283,6 +281,11 @@ func (tx *Transaction) Rollback() error {
 // ID returns the transaction ID.
 func (tx *Transaction) ID() string {
 	return tx.id
+}
+
+// ConnectionID returns the connection ID this transaction is bound to
+func (tx *Transaction) ConnectionID() string {
+	return tx.connID
 }
 
 // getState returns the current transaction state as a string.

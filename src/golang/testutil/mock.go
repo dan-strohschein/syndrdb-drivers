@@ -1,5 +1,3 @@
-//go:build milestone2
-
 package testutil
 
 import (

@@ -1,12 +1,10 @@
-//go:build milestone2
-
 package testutil_test
 
 import (
-"context"
-"testing"
+	"context"
+	"testing"
 
-"github.com/dan-strohschein/syndrdb-drivers/src/golang/testutil"
+	"github.com/dan-strohschein/syndrdb-drivers/src/golang/testutil"
 )
 
 func TestMockClient_BasicExpectations(t *testing.T) {
@@ -15,11 +13,11 @@ func TestMockClient_BasicExpectations(t *testing.T) {
 
 	mock.ExpectQuery("SELECT * FROM users").
 		WillReturn(map[string]interface{}{
-"users": []interface{}{
-map[string]interface{}{"id": 1, "name": "Alice"},
-map[string]interface{}{"id": 2, "name": "Bob"},
-},
-})
+			"users": []interface{}{
+				map[string]interface{}{"id": 1, "name": "Alice"},
+				map[string]interface{}{"id": 2, "name": "Bob"},
+			},
+		})
 
 	result, err := mock.Query(ctx, "SELECT * FROM users", 0)
 	if err != nil {
